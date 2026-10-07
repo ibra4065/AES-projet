@@ -1,5 +1,7 @@
 package aes;
 
+import java.security.SecureRandom;
+
 public class AES {
 	private final int taille_bloc = 128;
 	private static final int[] Rcon = {
@@ -60,6 +62,7 @@ public class AES {
     private int[][] master_Key;          // Clé maîtresse sous forme de tableau multidimensionnel
     private int[][][] keys;
     private int[][] state;
+    
    
     // === CONSTRUCTEUR DYNAMIQUE ===
     public AES(int taille_cle_maitre,String message) {
@@ -84,20 +87,47 @@ public class AES {
         		
     }
     
-    public static  int[] stringToBits(String message) {
-    	int[] tabbytes = new int[message.length()*8];
-    	for(int i=0;i<message.length();i++) {
-    		char c = message.charAt(i);
-    		String bits = Integer.toBinaryString(c);
-    		for (int j =0;j<bits.length();j++) {
-    			tabbytes[(i*8)+j]=Integer.parseInt(bits, j);
-    		}
-    	}
-    	return tabbytes;
+    public static int[] stringToBits(String message) {
+        int[] tabbytes = new int[message.length() * 8];
+        
+        for (int i = 0; i < message.length(); i++) {
+            char c = message.charAt(i);
+            
+            // On force la chaîne binaire à faire TOUJOURS 8 caractères (ajoute des '0' au début)
+            String bits = String.format("%8s", Integer.toBinaryString(c)).replace(' ', '0');
+            
+            // On parcourt TOUJOURS les 8 caractères de la chaîne fixe
+            for (int j = 0; j < 8; j++) {
+                // bits.charAt(j) donne le caractère '0' ou '1'. 
+                // En soustrayant '0', on le convertit en entier 0 ou 1.
+                tabbytes[(i * 8) + j] = bits.charAt(j) - '0';
+            }
+        }
+        return tabbytes;
     }
     
     
+
+    public void genereMasterKey() {
+        // 1. On utilise un générateur de nombres aléatoires sécurisé
+        SecureRandom random = new SecureRandom();
+        
+        // 2. On récupère dynamiquement le nombre de colonnes nécessaires (4, 6 ou 8)
+        int Nk = this.taille_cle_maitre / 32; 
+        
+        // 3. On remplit chaque case de notre matrice master_Key
+        for (int col = 0; col < Nk; col++) {
+            for (int row = 0; row < 4; row++) {
+                // random.nextInt(256) génère un entier aléatoire compris entre 0 et 255
+                this.master_Key[row][col] = random.nextInt(256);
+            }
+        }
+    }
+
     
+    private void bourrage(int[] tab) {
+    	
+    }
     
     //exemple de chifrement methode 
     /*public int[][] chiffrer(int[][] state) {
