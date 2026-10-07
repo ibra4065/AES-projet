@@ -1,4 +1,4 @@
-package Aas128;
+package aes;
 
 public class AES {
 	private final int taille_bloc = 128;
@@ -54,6 +54,70 @@ public class AES {
 	    {0xA0, 0xE0, 0x3B, 0x4D, 0xAE, 0x2A, 0xF5, 0xB0, 0xC8, 0xEB, 0xBB, 0x3C, 0x83, 0x53, 0x99, 0x61},
 	    {0x17, 0x2B, 0x04, 0x7E, 0xBA, 0x77, 0xD6, 0x26, 0xE1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0C, 0x7D}
 	};
+	
+	private int taille_cle_maitre;
+	private int nb_ronde;
+    private int[][] master_Key;          // Clé maîtresse sous forme de tableau multidimensionnel
+    private int[][][] keys;
+    private int[][] state;
+   
+    // === CONSTRUCTEUR DYNAMIQUE ===
+    public AES(int taille_cle_maitre,String message) {
+        if (taille_cle_maitre != 128 && taille_cle_maitre != 192 && taille_cle_maitre != 256) {
+            throw new IllegalArgumentException("La taille de la clé doit être 128, 192 ou 256 bits.");
+        }
+        
+        this.taille_cle_maitre = taille_cle_maitre;
+        
+        // Détermination du nombre de rondes selon les spécifications AES
+        if (taille_cle_maitre == 128) this.nb_ronde = 10;
+        else if (taille_cle_maitre == 192) this.nb_ronde = 12;
+        else this.nb_ronde = 14;
 
-
+        // La master_Key prend 4 lignes et Nk colonnes (Nk = 4, 6 ou 8)
+        int Nk = taille_cle_maitre / 32; 
+        this.master_Key = new int[4][Nk];
+        
+        // Initialisation de toutes les clés de tour nécessaires : (nb_ronde + 1) matrices de 4x4
+        this.keys = new int[this.nb_ronde + 1][4][4];
+        this.state = new int[4][4];
+        		
+    }
+    
+    public static  int[] stringToBits(String message) {
+    	int[] tabbytes = new int[message.length()*8];
+    	for(int i=0;i<message.length();i++) {
+    		char c = message.charAt(i);
+    		String bits = Integer.toBinaryString(c);
+    		for (int j =0;j<bits.length();j++) {
+    			tabbytes[(i*8)+j]=Integer.parseInt(bits, j);
+    		}
+    	}
+    	return tabbytes;
+    }
+    
+    
+    
+    
+    //exemple de chifrement methode 
+    /*public int[][] chiffrer(int[][] state) {
+        // Tour initial
+        addRoundKey(state, 0); 
+        
+        // Tours intermédiaires (1 à nb_ronde - 1)
+        for (int tour = 1; tour < this.nb_ronde; tour++) {
+            subBytes(state);
+            shiftRows(state);
+            mixColumns(state);
+            addRoundKey(state, tour); // Utilise la clé spécifique à ce tour
+        }
+        
+        // Dernier tour (sans MixColumns)
+        subBytes(state);
+        shiftRows(state);
+        addRoundKey(state, this.nb_ronde);
+        
+        return state; // Contient maintenant le texte chiffré !
+    }*/
+    
 }
