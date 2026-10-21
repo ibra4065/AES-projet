@@ -65,14 +65,16 @@ public class AES {
 	    };
 	
 	private int taille_cle_maitre;
+	private int NK;
 	private int nb_ronde;
     private int[][] master_Key;          // Clé maîtresse sous forme de tableau multidimensionnel
     private int[][][] keys;
     private int[][][] states;
     
+    
    
     // === CONSTRUCTEUR DYNAMIQUE ===
-    public AES(int taille_cle_maitre,String message) {
+    public AES(int taille_cle_maitre) {
         if (taille_cle_maitre != 128 && taille_cle_maitre != 192 && taille_cle_maitre != 256) {
             throw new IllegalArgumentException("La taille de la clé doit être 128, 192 ou 256 bits.");
         }
@@ -85,17 +87,42 @@ public class AES {
         else this.nb_ronde = 14;
 
         // La master_Key prend 4 lignes et Nk colonnes (Nk = 4, 6 ou 8)
-        int Nk = taille_cle_maitre / 32; 
-        this.master_Key = new int[4][Nk];
+        this.NK = taille_cle_maitre / 32; 
+        this.master_Key = new int[4][NK];
         
         // Initialisation de toutes les clés de tour nécessaires : (nb_ronde + 1) matrices de 4x4
         this.keys = new int[this.nb_ronde + 1][4][4];
-        int nbBlocs = (message.length() / 16) + 1;
-        this.states = new int[nbBlocs][4][4];
+        
         
         genereMasterKey();
-        this.keys[0]=this.master_Key;
+        createKeys();
         		
+    }
+    
+    public String chiffrement(String message) {
+    	int nbBlocs = (message.length() / 16) + 1;
+        this.states = new int[nbBlocs][4][4];
+        
+        int tab[] = bourrage(stringToBits(message));
+        int[][][] tablocs = decoupage_en_blocs(tab);
+        for (int i=0 ; i<tablocs.length;i++) {
+        	int[][] state = states[i];
+        	addRoundKey(state, 0);
+        	for (int tour = 1; tour < this.nb_ronde; tour++) {
+                subBytes(state);
+                shiftRows(state);
+                mixColumns(state);
+                addRoundKey(state, tour); // Utilise la clé spécifique à ce tour
+            }
+        	// Dernier tour (sans MixColumns)
+            subBytes(state);
+            shiftRows(state);
+            addRoundKey(state, this.nb_ronde);
+        }
+        int[] resultatBits = recollage_des_blocs(this.states);
+        return "";
+        //return bitsToString(resultatBits, nbBlocs);
+        
     }
     
     public static int[] stringToBits(String message) {
@@ -116,23 +143,105 @@ public class AES {
         }
         return tabbytes;
     }
-    
-    
+    // probleme a regler ici pour la methode chiffrement 
+    public static String bitsToString(int[] blocs) {
+        StringBuilder message = new StringBuilder();
 
+        for (int i = 0; i < blocs.length; i += 8) {
+            int valeur = 0;
+
+            for (int j = 0; j < 8; j++) {
+                valeur = (valeur << 1) | blocs[i + j];
+            }
+
+            message.append((char) valeur);
+        }
+
+        return message.toString();
+    }
+    
     public void genereMasterKey() {
         // 1. On utilise un générateur de nombres aléatoires sécurisé
         SecureRandom random = new SecureRandom();
         
         // 2. On récupère dynamiquement le nombre de colonnes nécessaires (4, 6 ou 8)
-        int Nk = this.taille_cle_maitre / 32; 
+        
         
         // 3. On remplit chaque case de notre matrice master_Key
-        for (int col = 0; col < Nk; col++) {
+        for (int col = 0; col < NK; col++) {
             for (int row = 0; row < 4; row++) {
                 // random.nextInt(256) génère un entier aléatoire compris entre 0 et 255
-                this.master_Key[row][col] = random.nextInt(256);
+            	int r = random.nextInt(256);;
+                this.master_Key[row][col] = r;
+                
             }
         }
+    }
+    
+    private void createKeys() {
+        int nombreMots = 4 * (nb_ronde + 1);
+        int[][] w = new int[nombreMots][4];
+
+        // 1. Copier la clé maître dans les premiers mots
+        for (int i = 0; i < NK; i++) {
+            for (int j = 0; j < 4; j++) {
+                w[i][j] = master_Key[j][i];
+            }
+        }
+
+        // 2. Générer les mots suivants
+        for (int i = NK; i < nombreMots; i++) {
+            int[] temp = w[i - 1].clone();
+
+            if (i % NK == 0) {
+                // RotWord
+                temp = rotWord(temp);
+
+                // SubWord
+                temp = subWord(temp);
+
+                // XOR avec Rcon
+                temp[0] ^= Rcon[i / NK];
+
+            } else if (NK == 8 && i % NK == 4) {
+                // Étape supplémentaire pour AES-256
+                temp = subWord(temp);
+            }
+
+            // w[i] = w[i - NK] XOR temp
+            for (int j = 0; j < 4; j++) {
+                w[i][j] = w[i - NK][j] ^ temp[j];
+            }
+        }
+
+        // 3. Ranger les mots dans les clés de ronde
+        for (int ronde = 0; ronde <= nb_ronde; ronde++) {
+            for (int col = 0; col < 4; col++) {
+                for (int row = 0; row < 4; row++) {
+                    keys[ronde][row][col] =
+                        w[ronde * 4 + col][row];
+                }
+            }
+        }
+    }
+    
+    private int[] subWord(int[] mot) {
+        int[] resultat = new int[4];
+
+        for (int i = 0; i < 4; i++) {
+            int ligne = (mot[i] >> 4) & 0x0F;
+            int colonne = mot[i] & 0x0F;
+
+            resultat[i] = sBox[ligne][colonne];
+        }
+
+        return resultat;
+    }
+    
+    private int[] rotWord(int[] mot) {
+        return new int[] {
+            mot[1], mot[2], mot[3], mot[0]
+        };
     }
     
     private void addRoundKey(int[][] state, int tour) {
@@ -146,7 +255,7 @@ public class AES {
     }
 
     
-    private  int[] bourrage(int[] tabBits) {
+    protected  int[] bourrage(int[] tabBits) {
         // 1. Calcul du nombre d'octets actuellement présents dans le tableau de bits
         int octetsActuels = tabBits.length / 8;
         
@@ -208,9 +317,34 @@ public class AES {
         // 5. On retourne le tableau multidimensionnel comme demandé par votre énoncé
         return mesBlocsStates;
     }
-
     
-    public static int[] xor(int[] tab1, int[] tab2) {
+    private int[] recollage_des_blocs(int[][][] blocs) {
+        // Chaque bloc contient 16 octets, soit 128 bits
+        int[] tabBits = new int[blocs.length * 128];
+
+        int indexBits = 0;
+
+        // Parcourir chaque bloc
+        for (int b = 0; b < blocs.length; b++) {
+
+            // Parcourir les colonnes, comme dans decoupage_en_blocs()
+            for (int col = 0; col < 4; col++) {
+                for (int row = 0; row < 4; row++) {
+
+                    int octet = blocs[b][row][col];
+
+                    // Convertir l'octet en 8 bits, du plus significatif au moins significatif
+                    for (int bit = 7; bit >= 0; bit--) {
+                        tabBits[indexBits++] = (octet >> bit) & 1;
+                    }
+                }
+            }
+        }
+
+        return tabBits;
+    }
+    
+    private  int[] xor(int[] tab1, int[] tab2) {
         // 1. Vérification de sécurité : les deux tableaux doivent obligatoirement avoir la même taille
         if (tab1.length != tab2.length) {
             throw new IllegalArgumentException("Les deux tableaux doivent avoir exactement la même taille.");
