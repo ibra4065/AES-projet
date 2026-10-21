@@ -57,11 +57,18 @@ public class AES {
 	    {0x17, 0x2B, 0x04, 0x7E, 0xBA, 0x77, 0xD6, 0x26, 0xE1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0C, 0x7D}
 	};
 	
+	private final int[][] matriceCoeff = {
+	        {2, 3, 1, 1}, // Ligne pour calculer la case 0 d'une colonne
+	        {1, 2, 3, 1}, // Ligne pour calculer la case 1 d'une colonne
+	        {1, 1, 2, 3}, // Ligne pour calculer la case 2 d'une colonne
+	        {3, 1, 1, 2}  // Ligne pour calculer la case 3 d'une colonne
+	    };
+	
 	private int taille_cle_maitre;
 	private int nb_ronde;
     private int[][] master_Key;          // Clé maîtresse sous forme de tableau multidimensionnel
     private int[][][] keys;
-    private int[][] state;
+    private int[][][] states;
     
    
     // === CONSTRUCTEUR DYNAMIQUE ===
@@ -83,7 +90,11 @@ public class AES {
         
         // Initialisation de toutes les clés de tour nécessaires : (nb_ronde + 1) matrices de 4x4
         this.keys = new int[this.nb_ronde + 1][4][4];
-        this.state = new int[4][4];
+        int nbBlocs = (message.length() / 16) + 1;
+        this.states = new int[nbBlocs][4][4];
+        
+        genereMasterKey();
+        this.keys[0]=this.master_Key;
         		
     }
     
@@ -123,12 +134,258 @@ public class AES {
             }
         }
     }
+    
+    private void addRoundKey(int[][] state, int tour) {
+        // On parcourt l'intégralité de la matrice 4x4 (lignes et colonnes)
+        for (int row = 0; row < 4; row++) {
+            for (int col = 0; col < 4; col++) {
+                // Opération XOR entre l'octet du texte (state) et l'octet de la clé du tour actuel
+                state[row][col] = state[row][col] ^ this.keys[tour][row][col];
+            }
+        }
+    }
 
     
-    private void bourrage(int[] tab) {
-    	
+    private  int[] bourrage(int[] tabBits) {
+        // 1. Calcul du nombre d'octets actuellement présents dans le tableau de bits
+        int octetsActuels = tabBits.length / 8;
+        
+        // 2. Calcul du nombre d'octets manquants pour atteindre le prochain multiple de 16
+        int octetsManquants = 16 - (octetsActuels % 16);
+        
+        // 3. Calcul de la taille finale en bits (ancienne taille + bits de bourrage)
+        int bitsManquants = octetsManquants * 8;
+        int[] tableauBourre = new int[tabBits.length + bitsManquants];
+        
+        // 4. Copie des bits d'origine (le message en binaire) dans le nouveau tableau
+        System.arraycopy(tabBits, 0, tableauBourre, 0, tabBits.length);
+        
+        // 5. Ajout du bourrage : on convertit la valeur 'octetsManquants' en paquets de 8 bits
+        int indexInsertion = tabBits.length;
+        for (int i = 0; i < octetsManquants; i++) {
+            for (int j = 0; j < 8; j++) {
+                // Extraction bit par bit de la valeur numérique (du bit fort au bit faible)
+                tableauBourre[indexInsertion++] = (octetsManquants >> (7 - j)) & 1;
+            }
+        }
+        
+        return tableauBourre;
+    }
+
+    
+    
+    public int[][][] decoupage_en_blocs(int[] tabBitsBourre) {
+        // 1. Calculer le nombre de blocs de 128 bits disponibles dans le tableau
+        int nbBlocs = tabBitsBourre.length / 128;
+        
+        // 2. Initialiser le tableau tridimensionnel qui va contenir toutes les matrices 4x4
+        int[][][] mesBlocsStates = new int[nbBlocs][4][4];
+        
+        int indexBits = 0;
+
+        // 3. Parcourir chaque bloc de message
+        for (int b = 0; b < nbBlocs; b++) {
+            // L'AES remplit chaque matrice bloc par colonne, puis par ligne
+            for (int col = 0; col < 4; col++) {
+                for (int row = 0; row < 4; row++) {
+                    
+                    // On lit 8 bits consécutifs pour reconstruire l'entier de l'octet (0 à 255)
+                    int valeurOctet = 0;
+                    for (int bit = 0; bit < 8; bit++) {
+                        // On utilise le décalage à gauche et le OU binaire qu'on a vu ensemble
+                        valeurOctet = (valeurOctet << 1) | tabBitsBourre[indexBits++];
+                    }
+                    
+                    // On enregistre l'octet décimal dans la bonne case de la matrice du bloc actuel
+                    mesBlocsStates[b][row][col] = valeurOctet;
+                }
+            }
+        }
+        
+        // 4. On affecte ce résultat directement à l'attribut global de la classe
+        this.states = mesBlocsStates;
+        
+        // 5. On retourne le tableau multidimensionnel comme demandé par votre énoncé
+        return mesBlocsStates;
+    }
+
+    
+    public static int[] xor(int[] tab1, int[] tab2) {
+        // 1. Vérification de sécurité : les deux tableaux doivent obligatoirement avoir la même taille
+        if (tab1.length != tab2.length) {
+            throw new IllegalArgumentException("Les deux tableaux doivent avoir exactement la même taille.");
+        }
+
+        // 2. Création du tableau qui va contenir le résultat
+        int[] resultat = new int[tab1.length];
+
+        // 3. Application de l'opérateur XOR (^) sur chaque case
+        for (int i = 0; i < tab1.length; i++) {
+            resultat[i] = tab1[i] ^ tab2[i];
+        }
+
+        // 4. On retourne le tableau final
+        return resultat;
+    }
+    private  void subBytes(int[][] state) {
+        // On parcourt l'intégralité de la matrice 4x4 (lignes et colonnes)
+        for (int row = 0; row < 4; row++) {
+            for (int col = 0; col < 4; col++) {
+                int valeur = state[row][col];
+                
+                // 1. On isole les 4 bits de gauche (poids fort) pour trouver la ligne de la S-Box
+                // L'opérateur >> 4 décale de 4 crans à droite. Le & 0x0F assure qu'on ne garde que 4 bits.
+                int indexLigne = (valeur >> 4) & 0x0F;
+                
+                // 2. On isole les 4 bits de droite (poids faible) pour trouver la colonne de la S-Box
+                // Le masque & 0x0F efface les bits de gauche et ne garde que les 4 bits de droite.
+                int indexColonne = valeur & 0x0F;
+                
+                // 3. On remplace l'octet d'origine par la valeur trouvée dans la sBox
+                state[row][col] = sBox[indexLigne][indexColonne];
+            }
+        }
+    }
+    private void shiftRows(int[][] state) {
+        // Variable temporaire pour stocker une ligne pendant qu'on la décale
+        int[] temp = new int[4];
+
+        // --- LIGNE 1 : Décalage de 1 case vers la gauche ---
+        temp[0] = state[1][1];
+        temp[1] = state[1][2];
+        temp[2] = state[1][3];
+        temp[3] = state[1][0]; // Le premier passe à la fin
+        System.arraycopy(temp, 0, state[1], 0, 4);
+
+        // --- LIGNE 2 : Décalage de 2 cases vers la gauche ---
+        temp[0] = state[2][2];
+        temp[1] = state[2][3];
+        temp[2] = state[2][0];
+        temp[3] = state[2][1];
+        System.arraycopy(temp, 0, state[2], 0, 4);
+
+        // --- LIGNE 3 : Décalage de 3 cases vers la gauche (revient à 1 case à droite) ---
+        temp[0] = state[3][3];
+        temp[1] = state[3][0];
+        temp[2] = state[3][1];
+        temp[3] = state[3][2];
+        System.arraycopy(temp, 0, state[3], 0, 4);
+    }
+
+    private int deux_a(int octet) {
+        // 1. On vérifie si le bit le plus à gauche vaut 1 (0x80 en hexadécimal vaut 10000000 en binaire)
+        int dépassement = octet & 0x80;
+        
+        // 2. On décale l'octet d'un cran vers la gauche
+        int resultat = (octet << 1) & 0xFF; // Le & 0xFF assure qu'on reste strictement sur 8 bits
+        
+        // 3. Si le bit de gauche valait 1, on applique le XOR correctif avec 0x1B
+        if (dépassement != 0) {
+            resultat = resultat ^ 0x1B;
+        }
+        
+        return resultat;
+    }
+    private int trois_a(int octet) {
+        // Multiplier par 3 = (Multiplier par 2) XOR (Multiplier par 1)
+        return deux_a(octet) ^ octet;
     }
     
+    
+ // === METHODES MULTIPLICATION POUR LE DECHIFFREMENT ===
+
+ // Multiplier par 9 = (((x * 2) * 2) * 2) ^ x   =>  8x ^ x = 9x
+    private int neuf_a(int octet) {
+    	int fois2 = deux_a(octet);
+    	int fois4 = deux_a(fois2);
+    	int fois8 = deux_a(fois4);
+    	return fois8 ^ octet;
+    }
+
+    // Multiplier par 11 = (((x * 2) * 2) ^ x) * 2 ^ x  =>  ((4x ^ x) * 2) ^ x = 8x ^ 2x ^ x = 11x
+    private int onze_a(int octet) {
+    	int fois2 = deux_a(octet);
+    	int fois4 = deux_a(fois2);
+    	int fois8 = deux_a(fois4);
+    	return fois8 ^ fois2 ^ octet;
+    }
+
+    // Multiplier par 13 = (((x * 2) ^ x) * 2 * 2) ^ x  =>  ((2x ^ x) * 4) ^ x = 8x ^ 4x ^ x = 13x
+    private int treize_a(int octet) {
+    	int fois2 = deux_a(octet);
+    	int fois4 = deux_a(fois2);
+    	int fois8 = deux_a(fois4);
+    	return fois8 ^ fois4 ^ octet;
+    }
+
+    // Multiplier par 14 = (((x * 2) ^ x) * 2 ^ x) * 2  =>  ((2x ^ x) * 2 ^ x) * 2 = 8x ^ 4x ^ 2x = 14x
+    private int quatorze_a(int octet) {
+    	int fois2 = deux_a(octet);
+    	int fois4 = deux_a(fois2);
+    	int fois8 = deux_a(fois4);
+    	return fois8 ^ fois4 ^ fois2;
+    }
+
+ // Étape Chiffrement : Multiplie 4 coefficients par 4 octets d'une colonne
+    private int prodAu(int[] coefficients, int[] colonne) {
+        int res = 0;
+        for (int i = 0; i < 4; i++) {
+            int temp = 0;
+            // On applique la bonne fonction multiplicatrice selon le coefficient
+            if (coefficients[i] == 1)      temp = colonne[i];
+            else if (coefficients[i] == 2) temp = deux_a(colonne[i]);
+            else if (coefficients[i] == 3) temp = trois_a(colonne[i]);
+            
+            // Accumulation par XOR (symbole ^)
+            res = res ^ temp;
+        }
+        return res;
+    }
+
+    // Étape Déchiffrement : Utile pour prodAuInv (coefficients 9, 11, 13, 14)
+    private int prodAuInv(int[] coefficients, int[] colonne) {
+        int res = 0;
+        for (int i = 0; i < 4; i++) {
+            int temp = 0;
+            if (coefficients[i] == 9)       temp = neuf_a(colonne[i]);
+            else if (coefficients[i] == 11) temp = onze_a(colonne[i]);
+            else if (coefficients[i] == 13) temp = treize_a(colonne[i]);
+            else if (coefficients[i] == 14) temp = quatorze_a(colonne[i]);
+            
+            res = res ^ temp;
+        }
+        return res;
+    }
+    
+    private void mixColumns(int[][] state) {
+        
+
+        // 2. On traite la matrice state colonne par colonne (de 0 à 3)
+        for (int col = 0; col < 4; col++) {
+            // Extraction des 4 octets de la colonne actuelle du state
+            int[] colonneActuelle = {
+                state[0][col],
+                state[1][col],
+                state[2][col],
+                state[3][col]
+            };
+
+            // Tableau temporaire pour stocker les 4 nouveaux octets de cette colonne
+            int[] nouvelleColonne = new int[4];
+
+            // Pour chaque case de la colonne, on applique une ligne de coefficients différente
+            for (int row = 0; row < 4; row++) {
+                nouvelleColonne[row] = prodAu(matriceCoeff[row], colonneActuelle);
+            }
+
+            // 3. On réinjecte la colonne entièrement calculée dans la matrice state d'origine
+            for (int row = 0; row < 4; row++) {
+                state[row][col] = nouvelleColonne[row];
+            }
+        }
+    }
+
+
     //exemple de chifrement methode 
     /*public int[][] chiffrer(int[][] state) {
         // Tour initial

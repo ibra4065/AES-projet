@@ -6,7 +6,9 @@ public class TestAES {
 
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
-		System.out.println(Arrays.toString(AES.stringToBits("raphael")));
+		String m = "htjrfuygtfoksevbzudjudsu";
+		System.out.println(Arrays.toString(AES.stringToBits(m)));
+		System.out.println(16^15);
 	}
 
 }
